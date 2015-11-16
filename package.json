@@ -9,6 +9,7 @@
   "author": "elastic.io GmbH",
   "license": "Apache-2.0",
   "dependencies": {
+    "debug": "^2.2.0",
     "haproxy": "^0.2.0"
   }
 }
