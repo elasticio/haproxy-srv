@@ -34,5 +34,5 @@ COPY start.js /src/start.js
 
 RUN cd /src; npm install
 
-EXPOSE 80 4022
+EXPOSE 80 4022 8081
 CMD ["node", "/src/start.js"]
