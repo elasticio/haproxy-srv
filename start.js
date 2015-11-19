@@ -97,6 +97,21 @@ function generateContext() {
 }
 
 /**
+ * This function prepares result of the RSVP.hashSettled function
+ * into the context usable for template parsing
+ *
+ * @returns {Promise}
+ */
+function prepareContext(result) {
+    var context = {};
+    Object.keys(result).map(key => {
+        var promiseResult = result[key];
+        if (promiseResult && promiseResult.state === 'fulfilled') context[key] = promiseResult.value;
+    });
+    return Promise.resolve(context);
+}
+
+/**
  * Promise that will do the configuration refresh of the HAProxy (if required)
  *
  * @param reload - if true and configuration changed HAProxy config reload will be triggered
@@ -105,7 +120,7 @@ function generateContext() {
 function regenerateConfiguration(reload) {
     var originalConfig = fs.existsSync(configurationFile) ? fs.readFileSync(configurationFile, 'utf8') : '';
     var template = fs.readFileSync(__dirname + "/haproxy.cfg.template", "utf8");
-    return generateContext().then(function (context) {
+    return generateContext().then(prepareContext).then(function (context) {
         return new Promise(function (resolve, reject) {
             debug('Merging template with context=%j', context);
             var newConfig = Mark.up(template, context);
@@ -193,4 +208,4 @@ setTimeout(function () {
 
 setTimeout(function () {
     process.exit(0);
-}, 20000);
+}, 10000);
