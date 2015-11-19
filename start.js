@@ -6,6 +6,9 @@ var HAProxy = require('haproxy');
 var Mark = require("markup-js");
 var fs = require("fs");
 var jsdiff = require('diff');
+var RSVP = require('rsvp');
+
+const CONFIG_REFRESH_TIMEOUT_MILLS = "1000" || process.env.REFRESH_TIMEOUT;
 
 var configurationFile = "/usr/local/etc/haproxy/haproxy.cfg";
 
@@ -65,41 +68,73 @@ function logStats() {
 }
 
 /**
- * Promise that will do the configuration refresh of the HAProxy (if required)
+ * Function that retuns a promise that will resolve into the context
+ * for template rendering
  *
- * @param reload - if true and configruation changed HAProxy config reload will be triggered
  * @returns {Promise}
  */
-var regenerateConfiguration = (reload) => new Promise(function (resolve, reject) {
-    var originalConfig = fs.existsSync(configurationFile) ? fs.readFileSync(configurationFile, 'utf8') : '';
-    var template = fs.readFileSync(__dirname + "/haproxy.cfg.template", "utf8");
-    var context = {};
-    debug('Merging template with context=%j', context);
-    var newConfig = Mark.up(template, context);
-    var diff = jsdiff.diffTrimmedLines(originalConfig, newConfig, { ignoreWhitespace : true });
-    if (diff.length > 1 || (diff[0].added || diff[0].removed)) {
-        debug('Configuration changes detected, diff follows');
-        debug(jsdiff.createPatch(configurationFile, originalConfig, newConfig, 'previous', 'new'));
-        fs.writeFileSync(configurationFile, newConfig, 'utf8');
-        debug('Configuration file updated filename=%s', configurationFile);
-        if (reload) {
-            debug('Configuration changes were detected reloading the HAProxy');
-            haproxy.reload(function(err, reloaded, cmd) {
+function generateContext() {
+    var services = {
+        frontend: '_frontend._tcp.marathon.mesos',
+        hooks: '_hooks._tcp.marathon.mesos'
+    };
+    var promises = {};
+    debug('Generating context for following services=%j', Object.keys(services));
+    Object.keys(services).map(serviceName => promises[serviceName] = new Promise((resolve, reject) => {
+            var dnsName = services[serviceName];
+            debug('Sending SRV request for entry=%j', dnsName);
+            dns.resolveSrv(dnsName, function (err, result) {
                 if (err) {
-                    console.log("HAProxy reload failed error=%s cmd=%s", err, cmd);
+                    debug('DNS SRV record failed to be resolved entry=%s error=', dnsName, err);
                     return reject(err);
                 }
-                debug('Triggered configuraiton reload reloaded=%s cmd=%s', reloaded, cmd);
-                resolve();
+                debug('DNS Name SRV resolved entry=%s resolved=%j', dnsName, result);
+                resolve(result);
             });
-        } else {
-            debug('Configuration changes were detected but reload is not requested');
-            resolve();
-        }
-    } else {
-        debug('No configuration changes detected');
-    }
-});
+        })
+    );
+    return RSVP.hashSettled(promises);
+}
+
+/**
+ * Promise that will do the configuration refresh of the HAProxy (if required)
+ *
+ * @param reload - if true and configuration changed HAProxy config reload will be triggered
+ * @returns {Promise}
+ */
+function regenerateConfiguration(reload) {
+    var originalConfig = fs.existsSync(configurationFile) ? fs.readFileSync(configurationFile, 'utf8') : '';
+    var template = fs.readFileSync(__dirname + "/haproxy.cfg.template", "utf8");
+    return generateContext().then(function (context) {
+        return new Promise(function (resolve, reject) {
+            debug('Merging template with context=%j', context);
+            var newConfig = Mark.up(template, context);
+            var diff = jsdiff.diffTrimmedLines(originalConfig, newConfig, {ignoreWhitespace: true});
+            if (diff.length > 1 || (diff[0].added || diff[0].removed)) {
+                debug('Configuration changes detected, diff follows');
+                debug(jsdiff.createPatch(configurationFile, originalConfig, newConfig, 'previous', 'new'));
+                fs.writeFileSync(configurationFile, newConfig, 'utf8');
+                debug('Configuration file updated filename=%s', configurationFile);
+                if (reload) {
+                    debug('Configuration changes were detected reloading the HAProxy');
+                    haproxy.reload(function (err, reloaded, cmd) {
+                        if (err) {
+                            console.log("HAProxy reload failed error=%s cmd=%s", err, cmd);
+                            return reject(err);
+                        }
+                        debug('Triggered configuration reload reloaded=%s cmd=%s', reloaded, cmd);
+                        resolve();
+                    });
+                } else {
+                    debug('Configuration changes were detected but reload is not requested');
+                    resolve();
+                }
+            } else {
+                debug('No configuration changes detected');
+            }
+        });
+    });
+}
 
 
 /**
@@ -109,11 +144,15 @@ var regenerateConfiguration = (reload) => new Promise(function (resolve, reject)
  */
 var scheduleRefresh = () => new Promise(function (resolve) {
     setInterval(function () {
-        debug('Starting refresh cycle');
-        regenerateConfiguration(true)
-            .then(()=> debug('Refresh cycle completed successfully'))
-            .catch(onFailure);
-    }, 1000);
+        try {
+            debug('Starting refresh cycle');
+            regenerateConfiguration(true)
+                .then(()=> debug('Refresh cycle completed successfully'))
+                .catch(onFailure);
+        } catch (error) {
+            onFailure(error);
+        }
+    }, CONFIG_REFRESH_TIMEOUT_MILLS);
     resolve();
 });
 
@@ -147,12 +186,11 @@ regenerateConfiguration(false)
     .then(logStats)
     .catch(onFailure);
 
-setTimeout(function() {
+setTimeout(function () {
     haproxy.reload(console.log);
 }, 5000);
 
 
-
-setTimeout(function() {
+setTimeout(function () {
     process.exit(0);
-}, 10000);
+}, 20000);
