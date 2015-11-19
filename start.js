@@ -67,22 +67,37 @@ function logStats() {
 /**
  * Promise that will do the configuration refresh of the HAProxy (if required)
  *
+ * @param reload - if true and configruation changed HAProxy config reload will be triggered
  * @returns {Promise}
  */
-var regenerateConfiguration = () => new Promise(function (resolve, reject) {
+var regenerateConfiguration = (reload) => new Promise(function (resolve, reject) {
     var originalConfig = fs.existsSync(configurationFile) ? fs.readFileSync(configurationFile, 'utf8') : '';
     var template = fs.readFileSync(__dirname + "/haproxy.cfg.template", "utf8");
     var context = {};
     debug('Merging template with context=%j', context);
     var newConfig = Mark.up(template, context);
     var diff = jsdiff.diffTrimmedLines(originalConfig, newConfig, { ignoreWhitespace : true });
-    if (diff.length > 1) {
-        debug('Configuration changes detected');
+    if (diff.length > 1 || (diff[0].added || diff[0].removed)) {
+        debug('Configuration changes detected, diff follows');
         debug(jsdiff.createPatch(configurationFile, originalConfig, newConfig, 'previous', 'new'));
+        fs.writeFileSync(configurationFile, newConfig, 'utf8');
+        debug('Configuration file updated filename=%s', configurationFile);
+        if (reload) {
+            debug('Configuration changes were detected reloading the HAProxy');
+            haproxy.reload(function(err) {
+                if (err) {
+                    console.log("HAProxy reload failed error=", err);
+                    return reject(err);
+                }
+                resolve();
+            });
+        } else {
+            debug('Configuration changes were detected but reload is not requested');
+            resolve();
+        }
     } else {
         debug('No configuration changes detected');
     }
-    resolve();
 });
 
 
@@ -94,7 +109,7 @@ var regenerateConfiguration = () => new Promise(function (resolve, reject) {
 var scheduleRefresh = () => new Promise(function (resolve) {
     setInterval(function () {
         debug('Starting refresh cycle');
-        regenerateConfiguration()
+        regenerateConfiguration(true)
             .then(()=> debug('Refresh cycle completed successfully'))
             .catch(onFailure);
     }, 1000);
@@ -123,7 +138,7 @@ function onFailure(error) {
 }
 
 // Main sequence
-regenerateConfiguration()
+regenerateConfiguration(false)
     .then(verifyConfiguration())
     .then(startHAProxy)
     .then(scheduleRefresh)
@@ -134,27 +149,3 @@ regenerateConfiguration()
 setTimeout(function() {
     process.exit(0);
 }, 10000);
-
-//console.log('CONFIG_SCRIPT: Starting HAProxy monitoring and configuration script');
-//
-//var childProccess = child_process.spawn('haproxy', ["-f", "/usr/local/etc/haproxy/haproxy.cfg"], {
-//    stdio : 'inherit'
-//});
-//
-//childProccess.on('exit', function(code, signal) {
-//    console.log('CONFIG_SCRIPT: HAProxy process exited code=%s signal=%s', code, signal);
-//    process.exit(code);
-//});
-//
-//var haproxy = new HAProxy('/tmp/haproxy.sock', {
-//    config: "/usr/local/etc/haproxy/haproxy.cfg",
-//    socket: "/tmp/haproxy.sock"
-//});
-//
-//setInterval(function() {
-//    var haproxy = new HAProxy('/tmp/haproxy.sock');
-//
-//    haproxy.verify(function (err, working) {
-//        console.log('HAProxy is working=%s', working, err);
-//    });
-//}, 1000);
