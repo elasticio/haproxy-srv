@@ -84,11 +84,12 @@ var regenerateConfiguration = (reload) => new Promise(function (resolve, reject)
         debug('Configuration file updated filename=%s', configurationFile);
         if (reload) {
             debug('Configuration changes were detected reloading the HAProxy');
-            haproxy.reload(function(err) {
+            haproxy.reload(function(err, reloaded, cmd) {
                 if (err) {
-                    console.log("HAProxy reload failed error=", err);
+                    console.log("HAProxy reload failed error=%s cmd=%s", err, cmd);
                     return reject(err);
                 }
+                debug('Triggered configuraiton reload reloaded=%s cmd=%s', reloaded, cmd);
                 resolve();
             });
         } else {
@@ -145,6 +146,12 @@ regenerateConfiguration(false)
     .then(reportSuccess)
     .then(logStats)
     .catch(onFailure);
+
+setTimeout(function() {
+    haproxy.reload(console.log);
+}, 5000);
+
+
 
 setTimeout(function() {
     process.exit(0);

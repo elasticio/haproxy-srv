@@ -19,6 +19,7 @@ ENV NODE_VERSION 5.0.0
 
 RUN apt-get update
 RUN apt-get install curl -y
+RUN apt-get install procps -y
 
 RUN curl -SLO "https://nodejs.org/dist/v$NODE_VERSION/node-v$NODE_VERSION-linux-x64.tar.gz" \
   && curl -SLO "https://nodejs.org/dist/v$NODE_VERSION/SHASUMS256.txt.asc" \
