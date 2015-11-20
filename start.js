@@ -154,11 +154,7 @@ function checkTemplate() {
         if (!value) {
             debug('DNS-SRV value was not found, block will be ignored dnsName=%s', dnsName);
         } else {
-            var ret = "";
-            value.forEach(function(obj) {
-                ret = ret + options.fn(obj);
-            });
-            return ret;
+            return options.fn(value);
         }
     });
     return Promise.resolve(dnsCache);
