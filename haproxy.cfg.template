@@ -28,14 +28,14 @@ frontend stats
     stats hide-version
     stats uri /
 
-{{if frontend}}
+{{#if frontend}}
     frontend sample
         bind 0.0.0.0:8080
         mode http
         balance roundrobin
         option http-server-close
         option forwardfor
-        {{frontend}}
-            server frontend-{{#}} {{name}}:{{port}} check weight {{weight}}
-        {{frontend}}
+        {{#each frontend}}
+            server frontend-{{@index}} {{name}}:{{port}} check weight {{weight}}
+        {{/each}}
 {{/if}}

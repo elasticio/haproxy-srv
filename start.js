@@ -2,7 +2,7 @@ var dns = require('dns');
 var debug = require('debug')('configurator');
 var child_process = require('child_process');
 var HAProxy = require('haproxy');
-var Mark = require("markup-js");
+var handlebars = require('handlebars');
 var fs = require("fs");
 var jsdiff = require('diff');
 var RSVP = require('rsvp');
@@ -118,11 +118,12 @@ function prepareContext(result) {
  */
 function regenerateConfiguration(reload) {
     var originalConfig = fs.existsSync(configurationFile) ? fs.readFileSync(configurationFile, 'utf8') : '';
-    var template = fs.readFileSync(__dirname + "/haproxy.cfg.template", "utf8");
+    var templateSource = fs.readFileSync(__dirname + "/haproxy.cfg.template", "utf8");
+    var template = handlebars.compile(templateSource);
     return generateContext().then(prepareContext).then(function (context) {
         return new Promise(function (resolve, reject) {
             debug('Merging template with context=%j', context);
-            var newConfig = Mark.up(template, context);
+            var newConfig = template(context);
             var diff = jsdiff.diffTrimmedLines(originalConfig, newConfig, {ignoreWhitespace: true});
             if (diff.length > 1 || (diff[0].added || diff[0].removed)) {
                 debug('Configuration changes detected, diff follows');
