@@ -28,7 +28,7 @@ frontend stats
     stats hide-version
     stats uri /
 
-{{#if frontend}}
+{{#dns-srv "_frontend._tcp.marathon.mesos"}}
     frontend sample
         bind 0.0.0.0:8080
         mode http
@@ -38,4 +38,4 @@ frontend stats
         {{#each frontend}}
             server frontend-{{@index}} {{name}}:{{port}} check weight {{weight}}
         {{/each}}
-{{/if}}
+{{/dns-srv}}

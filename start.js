@@ -1,5 +1,8 @@
+// Enable info by default
+process.env.DEBUG = (process.env.DEBUG ? process.env.DEBUG + ',' : '') + 'configurator:info';
 var dns = require('dns');
-var debug = require('debug')('configurator');
+var debug = require('debug')('configurator:debug');
+var info = require('debug')('configurator:info');
 var child_process = require('child_process');
 var HAProxy = require('haproxy');
 var handlebars = require('handlebars');
@@ -17,21 +20,38 @@ var haproxy = new HAProxy('/tmp/haproxy.sock', {
 });
 
 /**
+ * Cache that is used for discovery of the required properties
+ * and storage of the data used by handlebar helper
+ *
+ * @type {Map}
+ */
+var dnsCache = {
+    srv: new Map()
+};
+
+/**
+ * Here we will store result of handlebars.compile()
+ */
+var template;
+
+var haproxyRunning = false;
+
+/**
  * Promise that will verify configuration
  *
  * @type {Promise}
  */
 var verifyConfiguration = () => new Promise(function (resolve, reject) {
-    console.log('Verifying configuration');
+    info('Verifying configuration');
     if (!fs.existsSync(configurationFile)) return reject('Configuration file can not be found file=' + configurationFile);
     haproxy.verify(function (err, working) {
         if (err) {
             return reject(err);
         }
         if (!working) {
-            console.log('Configuration have warnings');
+            info('Configuration have warnings');
         } else {
-            console.log('Configuration verified successfully');
+            info('Configuration verified successfully');
         }
         resolve();
     });
@@ -42,14 +62,14 @@ var verifyConfiguration = () => new Promise(function (resolve, reject) {
  * @type {Promise}
  */
 var startHAProxy = () => new Promise(function (resolve) {
-    console.log('Starting the HAPRoxy child process')
+    info('Starting the HAPRoxy child process')
     var childProccess = child_process.spawn('haproxy', ["-f", configurationFile], {
         stdio: 'inherit'
     });
-
+    haproxyRunning = true;
     // Make sure when HAProxy exited we exit too
     childProccess.on('exit', function (code, signal) {
-        console.log('HAProxy process exited code=%s signal=%s', code, signal);
+        info('HAProxy process exited code=%s signal=%s', code, signal);
         process.exit(code);
     });
     resolve();
@@ -61,10 +81,28 @@ var startHAProxy = () => new Promise(function (resolve) {
 function logStats() {
     setInterval(function () {
         haproxy.stat('-1', '-1', '-1', function (err, stats) {
-            console.log('HAProxy Stats stats=%j', stats);
+            info('HAProxy Stats stats=%j', stats);
         });
     }, 10000);
 }
+
+/**
+ * This function returns a promise that resolve the string as SRV DNS Name
+ *
+ * @param dnsName
+ * @returns {Promise}
+ */
+var resolveSRV = dnsName => new Promise((resolve, reject) => {
+    debug('Sending SRV request for entry=%s', dnsName);
+    dns.resolveSrv(dnsName, function (err, result) {
+        if (err) {
+            debug('DNS SRV record failed to be resolved entry=%s error=', dnsName, err);
+            return reject(err);
+        }
+        debug('DNS Name SRV resolved entry=%s resolved=%j', dnsName, result);
+        resolve(result);
+    });
+});
 
 /**
  * Function that retuns a promise that will resolve into the context
@@ -73,41 +111,57 @@ function logStats() {
  * @returns {Promise}
  */
 function generateContext() {
-    var services = {
-        frontend: '_frontend._tcp.marathon.mesos',
-        hooks: '_hooks._tcp.marathon.mesos'
-    };
+    var services = dnsCache.srv;
     var promises = {};
-    debug('Generating context for following services=%j', Object.keys(services));
-    Object.keys(services).map(serviceName => promises[serviceName] = new Promise((resolve, reject) => {
-            var dnsName = services[serviceName];
-            debug('Sending SRV request for entry=%j', dnsName);
-            dns.resolveSrv(dnsName, function (err, result) {
-                if (err) {
-                    debug('DNS SRV record failed to be resolved entry=%s error=', dnsName, err);
-                    return reject(err);
-                }
-                debug('DNS Name SRV resolved entry=%s resolved=%j', dnsName, result);
-                resolve(result);
-            });
-        })
-    );
-    return RSVP.hashSettled(promises);
+    services.forEach((value, dnsName) => promises[dnsName] = resolveSRV(dnsName));
+    debug('Starting DNS lookups for keys=%j', Object.keys(promises));
+    return RSVP.hashSettled(promises).then(function(result) {
+        debug('DNS lookup completed');
+        var context = {};
+        Object.keys(result).map(key => {
+            var promiseResult = result[key];
+            if (promiseResult && promiseResult.state === 'fulfilled') context[key] = promiseResult.value;
+        });
+        return context;
+    });
 }
 
 /**
- * This function prepares result of the RSVP.hashSettled function
- * into the context usable for template parsing
- *
- * @returns {Promise}
+ * This function will do a dry run of the template to see which DNS records we need and validate HBS template syntax
+ * @param template
  */
-function prepareContext(result) {
-    var context = {};
-    Object.keys(result).map(key => {
-        var promiseResult = result[key];
-        if (promiseResult && promiseResult.state === 'fulfilled') context[key] = promiseResult.value;
+function checkTemplate() {
+    var templateSource = fs.readFileSync(__dirname + "/haproxy.cfg.template", "utf8");
+    template = handlebars.compile(templateSource);
+
+    // Validate configuration and gather required SRV records
+    // we need to do that because hanlebars does not support async helpers
+    // we will do the first dry-run to see which DNS records we need
+    // then fetch them and will be using them later
+    debug('Doing the template dry-run to gather dns values')
+    // That's a dry-run helper
+    handlebars.registerHelper('dns-srv', function gatherDataHelper(dnsName) {
+        debug('Found dns-srv helper with parameter=%s', dnsName);
+        dnsCache.srv.set(dnsName);
     });
-    return Promise.resolve(context);
+    // Run!
+    template();
+    debug('Dry-run completed, found values number=%s', dnsCache.srv.size);
+    // Restoring the dns-srv helper to it's productive state
+    handlebars.registerHelper('dns-srv', function gatherDataHelper(dnsName, options) {
+        debug('Looking-up dns-srv value dnsName=%s', dnsName);
+        var value = dnsCache.srv.get(dnsName);
+        if (!value) {
+            debug('DNS-SRV value was not found, block will be ignored dnsName=%s', dnsName);
+        } else {
+            var ret = "";
+            value.forEach(function(obj) {
+                ret = ret + options.fn(obj);
+            });
+            return ret;
+        }
+    });
+    return Promise.resolve(dnsCache);
 }
 
 /**
@@ -116,32 +170,30 @@ function prepareContext(result) {
  * @param reload - if true and configuration changed HAProxy config reload will be triggered
  * @returns {Promise}
  */
-function regenerateConfiguration(reload) {
-    var originalConfig = fs.existsSync(configurationFile) ? fs.readFileSync(configurationFile, 'utf8') : '';
-    var templateSource = fs.readFileSync(__dirname + "/haproxy.cfg.template", "utf8");
-    var template = handlebars.compile(templateSource);
-    return generateContext().then(prepareContext).then(function (context) {
+function regenerateConfiguration() {
+    return generateContext().then(function (context) {
         return new Promise(function (resolve, reject) {
+            var originalConfig = fs.existsSync(configurationFile) ? fs.readFileSync(configurationFile, 'utf8') : '';
             debug('Merging template with context=%j', context);
             var newConfig = template(context);
             var diff = jsdiff.diffTrimmedLines(originalConfig, newConfig, {ignoreWhitespace: true});
             if (diff.length > 1 || (diff[0].added || diff[0].removed)) {
-                debug('Configuration changes detected, diff follows');
-                debug(jsdiff.createPatch(configurationFile, originalConfig, newConfig, 'previous', 'new'));
+                info('Configuration changes detected, diff follows');
+                info(jsdiff.createPatch(configurationFile, originalConfig, newConfig, 'previous', 'new'));
                 fs.writeFileSync(configurationFile, newConfig, 'utf8');
-                debug('Configuration file updated filename=%s', configurationFile);
-                if (reload) {
-                    debug('Configuration changes were detected reloading the HAProxy');
+                info('Configuration file updated filename=%s', configurationFile);
+                if (haproxyRunning) {
+                    info('Configuration changes were detected reloading the HAProxy');
                     haproxy.reload(function (err, reloaded, cmd) {
                         if (err) {
-                            console.log("HAProxy reload failed error=%s cmd=%s", err, cmd);
+                            info("HAProxy reload failed error=%s cmd=%s", err, cmd);
                             return reject(err);
                         }
-                        debug('Triggered configuration reload reloaded=%s cmd=%s', reloaded, cmd);
+                        info('Triggered configuration reload reloaded=%s cmd=%s', reloaded, cmd);
                         resolve();
                     });
                 } else {
-                    debug('Configuration changes were detected but reload is not requested');
+                    info('Configuration changes were detected but HAProxy is not running yet');
                     resolve();
                 }
             } else {
@@ -178,7 +230,7 @@ var scheduleRefresh = () => new Promise(function (resolve) {
  */
 function reportSuccess() {
     return new Promise(function (resolve) {
-        console.log('HAProxy and configuration script successfully started');
+        info('HAProxy and configuration script successfully started');
         resolve();
     });
 }
@@ -188,15 +240,18 @@ function reportSuccess() {
  * @param error
  */
 function onFailure(error) {
-    console.log('Failure happened in the process of configuration', error);
+    console.error('Failure happened in the process of configuration', error);
     process.exit(-1);
 }
 
 // Main sequence
-regenerateConfiguration(false)
-    .then(verifyConfiguration())
+checkTemplate()
+    .then(regenerateConfiguration)
+    .then(verifyConfiguration)
     .then(startHAProxy)
     .then(scheduleRefresh)
     .then(reportSuccess)
     .then(logStats)
     .catch(onFailure);
+
+setTimeout(()=> process.exit(0), 3000);
