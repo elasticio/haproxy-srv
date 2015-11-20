@@ -253,5 +253,3 @@ checkTemplate()
     .then(reportSuccess)
     .then(logStats)
     .catch(onFailure);
-
-setTimeout(()=> process.exit(0), 3000);

@@ -28,11 +28,8 @@ RUN curl -SLO "https://nodejs.org/dist/v$NODE_VERSION/node-v$NODE_VERSION-linux-
   && tar -xzf "node-v$NODE_VERSION-linux-x64.tar.gz" -C /usr/local --strip-components=1 \
   && rm "node-v$NODE_VERSION-linux-x64.tar.gz" SHASUMS256.txt.asc
 
-COPY package.json /src/package.json
-COPY start.js /src/start.js
-COPY haproxy.cfg.template /src/haproxy.cfg.template
+COPY package.json start.js haproxy.cfg.template /src
 
 RUN cd /src; npm install
 
-EXPOSE 80 4022 8081
 CMD ["node", "/src/start.js"]
