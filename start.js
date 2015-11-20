@@ -1,5 +1,4 @@
 var dns = require('dns');
-process.env.DEBUG = 'configurator';
 var debug = require('debug')('configurator');
 var child_process = require('child_process');
 var HAProxy = require('haproxy');
@@ -204,8 +203,3 @@ regenerateConfiguration(false)
 setTimeout(function () {
     haproxy.reload(console.log);
 }, 5000);
-
-
-setTimeout(function () {
-    process.exit(0);
-}, 10000);
