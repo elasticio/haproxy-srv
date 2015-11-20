@@ -200,7 +200,3 @@ regenerateConfiguration(false)
     .then(reportSuccess)
     .then(logStats)
     .catch(onFailure);
-
-setTimeout(function () {
-    haproxy.reload(console.log);
-}, 5000);
