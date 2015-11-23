@@ -12,7 +12,7 @@ var RSVP = require('rsvp');
 
 const CONFIG_REFRESH_TIMEOUT_MILLS = "1000" || process.env.REFRESH_TIMEOUT;
 
-var configurationFile = "/usr/local/etc/haproxy/haproxy.cfg";
+var configurationFile = "/etc/haproxy.cfg";
 
 var haproxy = new HAProxy('/tmp/haproxy.sock', {
     config: configurationFile,
@@ -176,6 +176,7 @@ function regenerateConfiguration() {
             if (diff.length > 1 || (diff[0].added || diff[0].removed)) {
                 info('Configuration changes detected, diff follows');
                 info(jsdiff.createPatch(configurationFile, originalConfig, newConfig, 'previous', 'new'));
+                info('Writing configuration file filename=%s', configurationFile);;
                 fs.writeFileSync(configurationFile, newConfig, 'utf8');
                 info('Configuration file updated filename=%s', configurationFile);
                 if (haproxyRunning) {
