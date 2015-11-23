@@ -15,7 +15,7 @@ const CONFIG_REFRESH_TIMEOUT_MILLS = "1000" || process.env.REFRESH_TIMEOUT;
 
 var configurationFile = "/etc/haproxy.cfg";
 
-var haproxy = new HAProxy('/tmp/haproxy.sock', {
+var haproxy = new HAProxy({
     config: configurationFile,
     socket: "/tmp/haproxy.sock"
 });
@@ -62,18 +62,16 @@ var verifyConfiguration = () => new Promise(function (resolve, reject) {
  * Promise that will start the HAProxy child process
  * @type {Promise}
  */
-var startHAProxy = () => new Promise(function (resolve) {
-    info('Starting the HAPRoxy child process')
-    var childProccess = child_process.spawn('haproxy', ["-f", configurationFile], {
-        stdio: 'inherit'
+var startHAProxy = () => new Promise(function (resolve, reject) {
+    info('Starting the HAPRoxy daemon process');
+    haproxy.start(function started(err) {
+        if (err) {
+            console.error('Failed to start the HAProxy process');
+            return reject(err)
+        }
+        haproxyRunning = true;
+        resolve();
     });
-    haproxyRunning = true;
-    // Make sure when HAProxy exited we exit too
-    childProccess.on('exit', function (code, signal) {
-        info('HAProxy process exited code=%s signal=%s', code, signal);
-        process.exit(code);
-    });
-    resolve();
 });
 
 /**
@@ -99,14 +97,14 @@ function logStats() {
  *
  * @type {Promise}
  */
-var resolveIP = entry => new Promise((resolve,reject) => {
+var resolveIP = entry => new Promise((resolve, reject) => {
     var name = entry.name;
     if (ip.isV4Format(name) || ip.isV6Format(name)) {
         entry.ip = name;
         debug('Added IP information to the entry entry=%j', entry);
         resolve(entry)
     } else {
-        dns.resolve(name, function(err, address) {
+        dns.resolve(name, function (err, address) {
             if (err) {
                 debug('DNS Lookup failed entry=%s error=', name, err);
                 return reject(err);
@@ -155,7 +153,7 @@ function generateContext() {
     var promises = {};
     services.forEach((value, dnsName) => promises[dnsName] = resolveSRV(dnsName));
     debug('Starting DNS lookups for keys=%j', Object.keys(promises));
-    return RSVP.hashSettled(promises).then(function(result) {
+    return RSVP.hashSettled(promises).then(function (result) {
         debug('DNS lookup completed');
         var context = {};
         Object.keys(result).map(key => {
@@ -221,7 +219,8 @@ function regenerateConfiguration() {
             if (diff.length > 1 || (diff[0].added || diff[0].removed)) {
                 info('Configuration changes detected, diff follows');
                 info(jsdiff.createPatch(configurationFile, originalConfig, newConfig, 'previous', 'new'));
-                info('Writing configuration file filename=%s', configurationFile);;
+                info('Writing configuration file filename=%s', configurationFile);
+                ;
                 fs.writeFileSync(configurationFile, newConfig, 'utf8');
                 info('Configuration file updated filename=%s', configurationFile);
                 if (haproxyRunning) {
