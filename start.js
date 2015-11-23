@@ -133,7 +133,7 @@ var resolveSRV = dnsName => new Promise((resolve, reject) => {
         debug('DNS Name SRV resolved entry=%s resolved=%j', dnsName, result);
         if (result.length > 0) {
             // Sort items by name to make sure we do not detect false changes
-            result.sort((a,b) => a.name.localeCompare(b.name));
+            result = result.sort((a,b) => a.name.localeCompare(b.name));
             Promise.all(result.map(resolveIP))
                 .then(resolved => resolve(resolved))
                 .catch(error => reject(error));
