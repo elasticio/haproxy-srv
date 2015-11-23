@@ -163,7 +163,8 @@ function generateContext() {
             if (promiseResult && promiseResult.state === 'fulfilled') {
                 services.set(key, promiseResult.value);
             } else {
-                services.delete(key);
+                // Set key as undefined but do not delete it
+                services.set(key);
             }
         });
         return context;
