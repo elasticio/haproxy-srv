@@ -9,10 +9,11 @@ var handlebars = require('handlebars');
 var fs = require("fs");
 var jsdiff = require('diff');
 var RSVP = require('rsvp');
+var ip = require('ip');
 
 const CONFIG_REFRESH_TIMEOUT_MILLS = "1000" || process.env.REFRESH_TIMEOUT;
 
-var configurationFile = "/usr/local/etc/haproxy/haproxy.cfg";
+var configurationFile = "/etc/haproxy.cfg";
 
 var haproxy = new HAProxy('/tmp/haproxy.sock', {
     config: configurationFile,
@@ -86,6 +87,38 @@ function logStats() {
     }, 10000);
 }
 
+
+/**
+ * This function returns a promise that transforms this
+ *
+ *  {"name":"api-42873-s1.marathon.mesos","port":8090,"priority":0,"weight":0}
+ *
+ * into
+ *
+ *  {"name":"api-42873-s1.marathon.mesos","ip":"10.0.0.2","port":8090,"priority":0,"weight":0}
+ *
+ * @type {Promise}
+ */
+var resolveIP = entry => new Promise((resolve,reject) => {
+    var name = entry.name;
+    if (ip.isV4Format(name) || ip.isV6Format(name)) {
+        entry.ip = name;
+        debug('Added IP information to the entry entry=%j', entry);
+        resolve(entry)
+    } else {
+        dns.resolve(name, function(err, address) {
+            if (err) {
+                debug('DNS Lookup failed entry=%s error=', name, err);
+                return reject(err);
+            }
+            debug('DNS Lookup succeeded entry=%s address=%s', name, address);
+            entry.ip = address[0];
+            debug('Added IP information to the entry entry=%j', entry);
+            resolve(entry);
+        });
+    }
+});
+
 /**
  * This function returns a promise that resolve the string as SRV DNS Name
  *
@@ -100,9 +133,16 @@ var resolveSRV = dnsName => new Promise((resolve, reject) => {
             return reject(err);
         }
         debug('DNS Name SRV resolved entry=%s resolved=%j', dnsName, result);
-        resolve(result);
+        if (result.length > 0) {
+            Promise.all(result.map(resolveIP))
+                .then(resolved => resolve(resolved))
+                .catch(error => reject(error));
+        } else {
+            resolve([]);
+        }
     });
 });
+
 
 /**
  * Function that retuns a promise that will resolve into the context
@@ -120,7 +160,8 @@ function generateContext() {
         var context = {};
         Object.keys(result).map(key => {
             var promiseResult = result[key];
-            if (promiseResult && promiseResult.state === 'fulfilled') context[key] = promiseResult.value;
+            if (promiseResult && promiseResult.state === 'fulfilled')
+                services.set(key, promiseResult.value);
         });
         return context;
     });
@@ -150,11 +191,11 @@ function checkTemplate() {
     // Restoring the dns-srv helper to it's productive state
     handlebars.registerHelper('dns-srv', function gatherDataHelper(dnsName, options) {
         debug('Looking-up dns-srv value dnsName=%s', dnsName);
-        var value = dnsCache.srv.get(dnsName);
-        if (!value) {
+        var map = dnsCache.srv;
+        if (!map.get(dnsName)) {
             debug('DNS-SRV value was not found, block will be ignored dnsName=%s', dnsName);
         } else {
-            return options.fn(value);
+            return options.fn(map.get(dnsName));
         }
     });
     return Promise.resolve(dnsCache);
@@ -170,12 +211,13 @@ function regenerateConfiguration() {
     return generateContext().then(function (context) {
         return new Promise(function (resolve, reject) {
             var originalConfig = fs.existsSync(configurationFile) ? fs.readFileSync(configurationFile, 'utf8') : '';
-            debug('Merging template with context=%j', context);
+            debug('Merging template');
             var newConfig = template(context);
             var diff = jsdiff.diffTrimmedLines(originalConfig, newConfig, {ignoreWhitespace: true});
             if (diff.length > 1 || (diff[0].added || diff[0].removed)) {
                 info('Configuration changes detected, diff follows');
                 info(jsdiff.createPatch(configurationFile, originalConfig, newConfig, 'previous', 'new'));
+                info('Writing configuration file filename=%s', configurationFile);;
                 fs.writeFileSync(configurationFile, newConfig, 'utf8');
                 info('Configuration file updated filename=%s', configurationFile);
                 if (haproxyRunning) {
