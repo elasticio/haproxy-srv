@@ -120,7 +120,8 @@ function generateContext() {
         var context = {};
         Object.keys(result).map(key => {
             var promiseResult = result[key];
-            if (promiseResult && promiseResult.state === 'fulfilled') context[key] = promiseResult.value;
+            if (promiseResult && promiseResult.state === 'fulfilled')
+                services.put(key, promiseResult.value);
         });
         return context;
     });
@@ -150,11 +151,11 @@ function checkTemplate() {
     // Restoring the dns-srv helper to it's productive state
     handlebars.registerHelper('dns-srv', function gatherDataHelper(dnsName, options) {
         debug('Looking-up dns-srv value dnsName=%s', dnsName);
-        var value = dnsCache.srv.get(dnsName);
-        if (!value) {
+        var map = dnsCache.srv;
+        if (!map.has(dnsName)) {
             debug('DNS-SRV value was not found, block will be ignored dnsName=%s', dnsName);
         } else {
-            return options.fn(value);
+            return options.fn(map.get(dnsName));
         }
     });
     return Promise.resolve(dnsCache);
