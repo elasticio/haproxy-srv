@@ -121,7 +121,7 @@ function generateContext() {
         Object.keys(result).map(key => {
             var promiseResult = result[key];
             if (promiseResult && promiseResult.state === 'fulfilled')
-                services.put(key, promiseResult.value);
+                services.set(key, promiseResult.value);
         });
         return context;
     });
