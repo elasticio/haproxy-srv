@@ -36,6 +36,6 @@ frontend stats
         option http-server-close
         option forwardfor
         {{#each this}}
-            server frontend-{{@index}} {{ip.0}}:{{port}} check weight {{weight}}
+            server frontend-{{@index}} {{ip}}:{{port}} check weight {{weight}}
         {{/each}}
 {{/dns-srv}}

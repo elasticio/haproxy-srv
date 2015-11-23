@@ -112,7 +112,7 @@ var resolveIP = entry => new Promise((resolve,reject) => {
                 return reject(err);
             }
             debug('DNS Lookup succeeded entry=%s address=%s', name, address);
-            entry.ip = address;
+            entry.ip = address[0];
             debug('Added IP information to the entry entry=%j', entry);
             resolve(entry);
         });
