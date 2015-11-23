@@ -87,6 +87,40 @@ function logStats() {
     }, 10000);
 }
 
+
+/**
+ * This function returns a promise that transforms this
+ *
+ *  {"name":"api-42873-s1.marathon.mesos","port":8090,"priority":0,"weight":0}
+ *
+ * into
+ *
+ *  {"name":"api-42873-s1.marathon.mesos","ip":"10.0.0.2","family":"4","port":8090,"priority":0,"weight":0}
+ *
+ * @type {Promise}
+ */
+var resolveIP = entry => new Promise((resolve,reject) => {
+    var name = entry.name;
+    if (ip.isV4Format(name) || ip.isV6Format(name)) {
+        entry.ip = name;
+        entry.family = ip.isV4Format(name) ? "4" : "6";
+        debug('Added IP information to the entry entry=%j', entry);
+        resolve(entry)
+    } else {
+        dns.lookup(name, function(err, address, family) {
+            if (err) {
+                debug('DNS Lookup failed entry=%s error=', name, err);
+                return reject(err);
+            }
+            debug('DNS Lookup succeeded entry=%s address=%s family=%s', name, address, family);
+            entry.ip = address;
+            entry.family = family;
+            debug('Added IP information to the entry entry=%j', entry);
+            resolve(entry);
+        });
+    }
+});
+
 /**
  * This function returns a promise that resolve the string as SRV DNS Name
  *
@@ -101,25 +135,16 @@ var resolveSRV = dnsName => new Promise((resolve, reject) => {
             return reject(err);
         }
         debug('DNS Name SRV resolved entry=%s resolved=%j', dnsName, result);
-        var name = result.name;
-        if (ip.isV4Format(name) || ip.isV6Format(name)) {
-            // We already have an IP
-            result.ip = name;
+        if (result.length > 0) {
+            Promise.all(result.map(resolveIP))
+                .then(resolved => resolve(resolved))
+                .catch(error => reject(error));
         } else {
-            // We need to resolve to IP
-            dns.lookup(name, function(err, address, family) {
-                if (err) {
-                    debug('DNS Lookup failed entry=%s error=', name, err);
-                    return reject(err);
-                }
-                debug('DNS Lookup succeeded entry=%s address=%s family=%s', name, address, family);
-                result.ip = address;
-                result.family = family;
-                resolve(result);
-            });
+            resolve([]);
         }
     });
 });
+
 
 /**
  * Function that retuns a promise that will resolve into the context
