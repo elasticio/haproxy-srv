@@ -160,8 +160,11 @@ function generateContext() {
         var context = {};
         Object.keys(result).map(key => {
             var promiseResult = result[key];
-            if (promiseResult && promiseResult.state === 'fulfilled')
+            if (promiseResult && promiseResult.state === 'fulfilled') {
                 services.set(key, promiseResult.value);
+            } else {
+                services.delete(key);
+            }
         });
         return context;
     });
