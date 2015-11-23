@@ -95,7 +95,7 @@ function logStats() {
  *
  * into
  *
- *  {"name":"api-42873-s1.marathon.mesos","ip":"10.0.0.2","family":"4","port":8090,"priority":0,"weight":0}
+ *  {"name":"api-42873-s1.marathon.mesos","ip":"10.0.0.2","port":8090,"priority":0,"weight":0}
  *
  * @type {Promise}
  */
@@ -103,18 +103,16 @@ var resolveIP = entry => new Promise((resolve,reject) => {
     var name = entry.name;
     if (ip.isV4Format(name) || ip.isV6Format(name)) {
         entry.ip = name;
-        entry.family = ip.isV4Format(name) ? "4" : "6";
         debug('Added IP information to the entry entry=%j', entry);
         resolve(entry)
     } else {
-        dns.lookup(name, function(err, address, family) {
+        dns.resolve(name, function(err, address) {
             if (err) {
                 debug('DNS Lookup failed entry=%s error=', name, err);
                 return reject(err);
             }
-            debug('DNS Lookup succeeded entry=%s address=%s family=%s', name, address, family);
+            debug('DNS Lookup succeeded entry=%s address=%s', name, address);
             entry.ip = address;
-            entry.family = family;
             debug('Added IP information to the entry entry=%j', entry);
             resolve(entry);
         });
