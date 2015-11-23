@@ -9,6 +9,7 @@ var handlebars = require('handlebars');
 var fs = require("fs");
 var jsdiff = require('diff');
 var RSVP = require('rsvp');
+var ip = require('ip');
 
 const CONFIG_REFRESH_TIMEOUT_MILLS = "1000" || process.env.REFRESH_TIMEOUT;
 
@@ -100,7 +101,23 @@ var resolveSRV = dnsName => new Promise((resolve, reject) => {
             return reject(err);
         }
         debug('DNS Name SRV resolved entry=%s resolved=%j', dnsName, result);
-        resolve(result);
+        var name = result.name;
+        if (ip.isV4Format(name) || ip.isV6Format(name)) {
+            // We already have an IP
+            result.ip = name;
+        } else {
+            // We need to resolve to IP
+            dns.lookup(name, function(err, address, family) {
+                if (err) {
+                    debug('DNS Lookup failed entry=%s error=', name, err);
+                    return reject(err);
+                }
+                debug('DNS Lookup succeeded entry=%s address=%s family=%s', name, address, family);
+                result.ip = address;
+                result.family = family;
+                resolve(result);
+            });
+        }
     });
 });
 
@@ -152,7 +169,7 @@ function checkTemplate() {
     handlebars.registerHelper('dns-srv', function gatherDataHelper(dnsName, options) {
         debug('Looking-up dns-srv value dnsName=%s', dnsName);
         var map = dnsCache.srv;
-        if (!map.has(dnsName)) {
+        if (!map.get(dnsName)) {
             debug('DNS-SRV value was not found, block will be ignored dnsName=%s', dnsName);
         } else {
             return options.fn(map.get(dnsName));
@@ -171,7 +188,7 @@ function regenerateConfiguration() {
     return generateContext().then(function (context) {
         return new Promise(function (resolve, reject) {
             var originalConfig = fs.existsSync(configurationFile) ? fs.readFileSync(configurationFile, 'utf8') : '';
-            debug('Merging template with context=%j', context);
+            debug('Merging template');
             var newConfig = template(context);
             var diff = jsdiff.diffTrimmedLines(originalConfig, newConfig, {ignoreWhitespace: true});
             if (diff.length > 1 || (diff[0].added || diff[0].removed)) {
