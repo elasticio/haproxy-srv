@@ -34,14 +34,6 @@ global
     user root
     group root
 
-    # Default SSL material locations
-    ca-base /etc/ssl/certs
-    crt-base /etc/ssl/private
-
-    # Default ciphers to use on SSL-enabled listening sockets.
-    # For more information, see ciphers(1SSL).
-    ssl-default-bind-ciphers kEECDH+aRSA+AES:kRSA+AES:+AES256:RC4-SHA:!kEDH:!LOW:!EXP:!MD5:!aNULL:!eNULL
-
     # Stats required for this module to work
     # https://github.com/observing/haproxy#haproxycfg
     stats socket /tmp/haproxy.sock level admin
@@ -52,18 +44,9 @@ defaults
     timeout client  50000
     timeout server  50000
 
-
-frontend stats
-    bind 0.0.0.0:8081
-    mode http
-    stats enable
-    stats hide-version
-    stats uri /
-
 {{#dns-srv "_frontend._tcp.marathon.mesos"}}
     frontend sample
-        bind 0.0.0.0:8080
-        mode http
+        bind 0.0.0.0:80
         balance roundrobin
         option http-server-close
         option forwardfor
