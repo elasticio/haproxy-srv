@@ -16,7 +16,7 @@ FROM elasticio/haproxy-srv:latest
 
 COPY haproxy.cfg.template /src/
 
-EXPOSE 80 4022
+EXPOSE 80 8880
 ```
 
 Note the ``EXPOSE`` part here, don't forget to specify exposed ports if your HAProxy configuration listens on any port different from ``80``.
