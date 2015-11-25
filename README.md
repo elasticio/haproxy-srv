@@ -86,10 +86,9 @@ Configuration template is a normal [Handlebars](http://handlebarsjs.com/) so tha
 This template will give you an idea how to use it:
 
 ```hbs
-...
 # Your usual configuration is here
 {{#dns-srv "_frontend._tcp.marathon.mesos"}}
-    # This blog will only be rendered when _frontend._tcp.marathon.mesos was found in DNS
+    # This block will only be rendered when _frontend._tcp.marathon.mesos was found in DNS
     {{#each this}}
         # This piece will be rendered for each SRV entry from DNS
         SRV Name is {{name}}
