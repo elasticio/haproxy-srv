@@ -67,5 +67,15 @@ frontend stats
 {{/dns-srv}}
 ```
 
+It could be any valid HAProxy configuration with one mandatory addition:
+
+```
+stats socket /tmp/haproxy.sock level admin
+```
+
+to trigger HAProxy restart the script inside the file will communicate with HAProxy daemon via socket ```/tmp/haproxy.sock```.
+
 # Debugging
+
+Just set the ``DEBUG`` environment variable into ``*`` to see detailed logging.
 
