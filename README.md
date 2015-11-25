@@ -5,6 +5,8 @@ service data from DNS (e.g. SkyDNS or Mesos-DNS) using SRV records.
 
 It has a very simple logic - HA Proxy is configured based on the Handlebars template that is re-evaluated every time changes in DNS are detecting. Script is polling DNS and trigger a HA Proxy configuration refresh after changes.
 
+Made by [elastic.io](http://www.elastic.io) in Germany.
+
 # How it works
 
 Script works very simple - after docker container started script parse and validates template, create a HAProxy configuration file in ``/src/haproxy.cfg`` and start HAProxy as a daemon. Every second (by default, can be configured via ``REFRESH_TIMEOUT`` env variable, default 1000) scirpt will execute a DNS lookup and re-evaluate the template, if result of evaluation is different from original configuration, original config will be overwritten and HAProxy reload will be triggered. HAProxy reload will not affect existing connections.
