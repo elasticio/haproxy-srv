@@ -15,6 +15,8 @@ Simplest way to start it with Docker:
 docker run -d -p 8080:8080 -p 80:80 -v $PWD/haproxy.cfg.template:/src/haproxy.cfg.template elasticio/haproxy-srv:latest
 ```
 
+if you want to see more DEBUG output then just add ``-e "DEBUG=*"``
+
 # How it works
 
 Script works very simple - after docker container started script parse and validates template, create a HAProxy configuration file in ``/src/haproxy.cfg`` and start HAProxy as a daemon. Every second (by default, can be configured via ``REFRESH_TIMEOUT`` env variable, default 1000) scirpt will execute a DNS lookup and re-evaluate the template, if result of evaluation is different from original configuration, original config will be overwritten and HAProxy reload will be triggered. HAProxy reload will not affect existing connections.
