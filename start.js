@@ -75,18 +75,6 @@ var startHAProxy = () => new Promise(function (resolve, reject) {
 });
 
 /**
- * Logging HAProxy stats to the STDOUT
- */
-function logStats() {
-    setInterval(function () {
-        haproxy.stat('-1', '-1', '-1', function (err, stats) {
-            info('HAProxy Stats stats=%j', stats);
-        });
-    }, 10000);
-}
-
-
-/**
  * This function returns a promise that transforms this
  *
  *  {"name":"api-42873-s1.marathon.mesos","port":8090,"priority":0,"weight":0}
@@ -294,5 +282,4 @@ checkTemplate()
     .then(startHAProxy)
     .then(scheduleRefresh)
     .then(reportSuccess)
-    .then(logStats)
     .catch(onFailure);
