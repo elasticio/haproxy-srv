@@ -27,7 +27,8 @@ var haproxy = new HAProxy({
  * @type {Map}
  */
 var dnsCache = {
-    srv: new Map()
+    srv: new Map(),
+    a: new Map()
 };
 
 /**
@@ -94,7 +95,7 @@ var resolveIP = entry => new Promise((resolve, reject) => {
     } else {
         dns.resolve(name, function (err, address) {
             if (err) {
-                debug('DNS Lookup failed entry=%s error=', name, err);
+                debug('DNS Lookup failed entry=%s error=%j', name, err);
                 return reject(err);
             }
             debug('DNS Lookup succeeded entry=%s address=%s', name, address);
@@ -103,6 +104,62 @@ var resolveIP = entry => new Promise((resolve, reject) => {
             resolve(entry);
         });
     }
+});
+
+/** 
+ * This function returns a promise that transforms
+ *    {"ip": "192.168.1.1" }
+ * into
+ *    {"ip": "192.168.1.1", "name": "server1.example.com"}
+ *
+ * @type {Promise}
+ */
+var reverseLookup = entry => new Promise((resolve, reject) => {
+  if ( ! ( ip.isV4Format(entry.ip) && ip.isV6Format(entry.ip) ) )
+    return reject("Invalid entry address format");
+  
+  dns.reverse(entry.ip, function (err, hostnames) {
+    if (err) {
+      debug("DNS Reverse lookup failed for %j: %j", entry, err);
+      return reject(err);
+    }
+    debug("DNS Reverse lookup succeeded: %j => %j", entry, hostnames);
+    // pick the first one
+    entry.name = hostnames[0];
+    resolve( entry );
+  });
+});
+/** 
+ * This function returns a promise that resolves the string 
+ * as an array of IP addresess for multiple A records
+ *
+ * @param dnsName
+ * @returns {Promise}
+ */
+var resolveA = dnsName => new Promise((resolve, reject) => {
+  debug("resolveA: doing DNS lookup for %s", dnsName);
+  dns.resolve(dnsName, function (err, addresses) {
+    if (err) {
+        debug('DNS Lookup failed entry=%s error=%j', dnsName, err);
+        return reject(err);
+    }
+    if ( addresses.length == 0 )
+      return resolve([]);
+    
+    // sort IP addresses
+    addresses.sort();
+    
+    debug('DNS Lookup succeeded entry=%s address=%j', dnsName, addresses);
+    /* map the address array into something that looks similar
+     * to the resolveSRV return
+     */
+    addresses = addresses.map(function(a) { return {'ip': a } });
+    
+    // add a 'name' key using reverseLookup
+    Promise.all(addresses.map(reverseLookup))
+      .then(resolved => resolve(resolved))
+      .catch(error => reject(error));
+  });
 });
 
 /**
@@ -140,8 +197,11 @@ var resolveSRV = dnsName => new Promise((resolve, reject) => {
  */
 function generateContext() {
     var services = dnsCache.srv;
+    var a_records = dnsCache.a;
     var promises = {};
     services.forEach((value, dnsName) => promises[dnsName] = resolveSRV(dnsName));
+    a_records.forEach((value, dnsName) => promises[dnsName] = resolveA(dnsName));
+    
     debug('Starting DNS lookups for keys=%j', Object.keys(promises));
     return RSVP.hashSettled(promises).then(function (result) {
         debug('DNS lookup completed');
@@ -149,10 +209,15 @@ function generateContext() {
         Object.keys(result).map(key => {
             var promiseResult = result[key];
             if (promiseResult && promiseResult.state === 'fulfilled') {
+              // A record lookups do not have ports
+              if ( typeof(promiseResult.value[0]['port']) == "undefined" )
+                a_records.set(key, promiseResult.value);
+              else
                 services.set(key, promiseResult.value);
             } else {
                 // Set key as undefined but do not delete it
                 services.set(key);
+                a_records.set(key);
             }
         });
         return context;
@@ -173,15 +238,23 @@ function checkTemplate() {
     // then fetch them and will be using them later
     debug('Doing the template dry-run to gather dns values')
     // That's a dry-run helper
-    handlebars.registerHelper('dns-srv', function gatherDataHelper(dnsName) {
+    handlebars.registerHelper({
+      'dns-srv': function gatherDataHelper(dnsName) {
         debug('Found dns-srv helper with parameter=%s', dnsName);
         dnsCache.srv.set(dnsName);
+      },
+      'dns-a': function gatherDataHelper(dnsName) {
+        debug('Found dns-a helper with parameter=%s', dnsName);
+        dnsCache.a.set(dnsName);
+      }
     });
+    
     // Run!
     template();
-    debug('Dry-run completed, found values number=%s', dnsCache.srv.size);
+    debug('Dry-run completed, found values records srv=%s a=%s', dnsCache.srv.size, dnsCache.a.size);
     // Restoring the dns-srv helper to it's productive state
-    handlebars.registerHelper('dns-srv', function gatherDataHelper(dnsName, options) {
+    handlebars.registerHelper({
+      'dns-srv': function gatherDataHelper(dnsName, options) {
         debug('Looking-up dns-srv value dnsName=%s', dnsName);
         var map = dnsCache.srv;
         if (!map.get(dnsName)) {
@@ -189,6 +262,17 @@ function checkTemplate() {
         } else {
             return options.fn(map.get(dnsName));
         }
+      },
+      'dns-a':  function gatherDataHelper(dnsName, options) {
+        debug('Looking-up dns-a value dnsName=%s', dnsName);
+        var map = dnsCache.a;
+        if (!map.get(dnsName)) {
+            debug('DNS-A value was not found, block will be ignored dnsName=%s', dnsName);
+        } else {
+            return options.fn(map.get(dnsName));
+        }
+        
+      }
     });
     return Promise.resolve(dnsCache);
 }

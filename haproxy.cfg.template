@@ -39,3 +39,14 @@ frontend stats
             server frontend-{{@index}} {{ip}}:{{port}} check weight {{weight}}
         {{/each}}
 {{/dns-srv}}
+
+{{#dns-a "cluster.example.com"}}
+  frontend sample2
+    bind 0.0.0.0:8081
+    mode http
+  backend sample2
+    balance leastconn
+    {{#each this}}
+      server {{name}} {{ip}}:80 check
+    {{/each}}
+{{/dns-a}}
