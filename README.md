@@ -144,7 +144,7 @@ a custom haproxy.cfg.template.  For the `dns-a` section use:
 ```
 
 ```
-$ mkdir my_prox ; cd my_prox
+$ mkdir my_proxy ; cd my_proxy
 #  (make a new Dockerfile)
 $ docker build -t my_proxy_image .
 ```
@@ -154,6 +154,9 @@ Fire up a new proxy, publishing port 80 to something unique on each docker host 
 ```
 $ docker service create --name my_proxy --network my_net -p 8081:80 my_proxy_image
 ```
+
+Optionally, use some other method for sharing & binding the haproxy.cfg.template file
+into the `elasticio/haproxy-srv` image.
 
 # Debugging
 
