@@ -3,6 +3,8 @@
 HAProxy-SRV is a templating solution that can flexibly reconfigure HAProxy based on the regular polling of the
 service data from DNS (e.g. SkyDNS or Mesos-DNS) using SRV records.
 
+HAProxy-SRV also works with Round-Robin DNS A records, like Docker Swarm Mode.
+
 It has a very simple logic - HA Proxy is configured based on the Handlebars template that is re-evaluated every time changes in DNS are detecting. Script is polling DNS and trigger a HA Proxy configuration refresh after changes.
 
 Made by [elastic.io](http://www.elastic.io) in Germany.
@@ -64,6 +66,24 @@ defaults
             server frontend-{{@index}} {{ip}}:{{port}} check weight {{weight}}
         {{/each}}
 {{/dns-srv}}
+
+# Standard DNS Round-Robin
+{{#dns-a "cluster.example.com"}}
+  frontend sample2
+    bind 0.0.0.0:8080
+    {{#each this}}
+      server {{name}} {{ip}}:80 check
+    {{/each}}
+{{/dns-a}}
+
+# Docker Swarm Mode example
+{{#dns-a "tasks.myservice"}}
+  frontend sample3
+    bind 0.0.0.0:8081
+    {{#each this}}
+      server {{name}} {{ip}}:80 check
+    {{/each}}
+{{/dns-a}}
 ```
 
 It could be any valid HAProxy configuration with one mandatory addition:
@@ -96,6 +116,47 @@ This template will give you an idea how to use it:
 ```
 
 Typical use-case for Msos-DNS you can see above.
+
+# Docker Swarm Mode Guide
+
+First, create a network, and web service:
+
+```
+$ docker network create -d overlay --subnet 10.1.1.0/24 my_net
+$ docker service create --replicas 2 --name my_web --network my_net nginx
+```
+
+By default, services are created as `--endpoint-mode vip`.  If you use VIP mode,
+then the Round-Robin DNS name is `tasks.my_web`.  If you use `--endpoint-mode dnsrr`
+then the `my_web` DNS name will work in the HAProxy `dns-a` template.
+
+Follow the **How to use it** section above on creating a new proxy image using
+a custom haproxy.cfg.template.  For the `dns-a` section use:
+
+```
+{{#dns-a "tasks.my_web"}}
+  # other configs
+  backend my_web
+  {{#each this}}
+    server {{name}} {{ip}}:80 check
+  {{/each}}
+{{/dns-a}}
+```
+
+```
+$ mkdir my_proxy ; cd my_proxy
+#  (make a new Dockerfile)
+$ docker build -t my_proxy_image .
+```
+
+Fire up a new proxy, publishing port 80 to something unique on each docker host node
+
+```
+$ docker service create --name my_proxy --network my_net -p 8081:80 my_proxy_image
+```
+
+Optionally, use some other method for sharing & binding the haproxy.cfg.template file
+into the `elasticio/haproxy-srv` image.
 
 # Debugging
 
