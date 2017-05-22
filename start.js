@@ -11,7 +11,7 @@ var jsdiff = require('diff');
 var RSVP = require('rsvp');
 var ip = require('ip');
 
-const CONFIG_REFRESH_TIMEOUT_MILLS = "1000" || process.env.REFRESH_TIMEOUT;
+const CONFIG_REFRESH_TIMEOUT_MILLS = process.env.REFRESH_TIMEOUT || "1000";
 
 var configurationFile = "/etc/haproxy.cfg";
 
